@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.core.redis import create_redis_client
 from app.db.base import Base
 from app.db.session import engine
 from app.modules.auth.router import router as auth_router
@@ -13,10 +14,12 @@ from app.modules.users.router import router as users_router
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
-        Base.metadata.create_all(engine)
-        yield
+        with create_redis_client() as redis_client:
+            app.state.redis = redis_client
+            Base.metadata.create_all(engine)
+            yield
     finally:
         engine.dispose()
 

@@ -3,11 +3,15 @@ from hashlib import sha256
 from secrets import token_urlsafe
 from time import time
 
+from redis import Redis
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.modules.auth import repository
+from app.modules.auth import rate_limiter, repository
 from app.modules.auth.models import AuthSession
+from app.modules.auth.rate_limiter import (
+    RateLimiterUnavailableError as RateLimiterUnavailableError,
+)
 from app.modules.auth.schemas import LoginRequest, SessionToken
 from app.modules.users import service as users_service
 
@@ -31,12 +35,8 @@ def _digest(value: str) -> str:
     return sha256(value.encode()).hexdigest()
 
 
-def login(db: Session, data: LoginRequest, client_host: str) -> SessionToken:
-    buckets = (
-        (_digest(f"ip:{client_host}"), 20),
-        (_digest(f"email:{data.email.casefold()}"), 10),
-    )
-    retry_after = repository.record_login_attempt(db, buckets, int(time()), 60)
+def login(db: Session, data: LoginRequest, client_host: str, redis_client: Redis) -> SessionToken:
+    retry_after = rate_limiter.record_login_attempt(redis_client, client_host, data.email)
     if retry_after:
         raise LoginRateLimitError(retry_after)
 

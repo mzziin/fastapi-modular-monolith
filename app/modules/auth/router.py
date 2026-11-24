@@ -13,7 +13,7 @@ def login(
 ) -> SessionToken:
     client_host = request.client.host if request.client else "unknown"
     try:
-        token = service.login(db, data, client_host)
+        token = service.login(db, data, client_host, request.app.state.redis)
     except service.InvalidCredentialsError as exc:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
@@ -25,6 +25,10 @@ def login(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many login attempts",
             headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    except service.RateLimiterUnavailableError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Login temporarily unavailable"
         ) from exc
     response.headers["Cache-Control"] = "no-store"
     return token

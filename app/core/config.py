@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     )
 
     database_url: SecretStr
+    redis_url: SecretStr = SecretStr("redis://127.0.0.1:6379/0")
     auth_session_ttl_seconds: PositiveInt = 28_800
 
 
