@@ -2,7 +2,7 @@
 
 I built this project to test the modular monolithic architecture and practice system design and deployment. The task manager is a deliberately small domain for exploring how to divide a backend into modules, enforce ownership, and run an API with a separate database process.
 
-**Stack:** Python 3.15, FastAPI, Pydantic, SQLAlchemy, Psycopg, PostgreSQL.
+**Stack:** Python 3.15, FastAPI, Pydantic, SQLAlchemy, Psycopg, PostgreSQL, Redis.
 
 ## Architecture
 
@@ -49,13 +49,16 @@ flowchart LR
 ## System design decisions
 
 - **Opaque sessions.** PostgreSQL stores a token digest, user ID, and expiration. Protected requests pay for an indexed session lookup, which lets logout revoke the session for subsequent requests. Passwords are hashed with Argon2, and validation error responses omit submitted values.
-- **Database constraints.** PostgreSQL enforces unique emails and foreign keys. Deleting an account also deletes its tasks and sessions through cascading foreign keys. The login rate limiter uses atomic PostgreSQL upserts so concurrent attempts can share the same counters.
+- **Database constraints.** PostgreSQL enforces unique emails and foreign keys. Deleting an account also deletes its tasks and sessions through cascading foreign keys.
+- **Redis login rate limiting.** An atomic Lua script checks counters shared by API workers. Login allows 20 attempts per IP and 10 per email in a 60-second window. Redis expires the counters automatically. Login returns `429` with `Retry-After` when a limit is reached and `503` when Redis is unavailable. Existing sessions continue to use PostgreSQL.
 - **Cursor pagination.** Task lists are scoped to the authenticated owner and ordered by task ID. The `(owner_id, id)` index supports that query. The repository fetches one extra row to determine whether another page exists, saving a separate count query. The default page size is 50, with a maximum of 100.
-- **Deployment boundary.** A single Linux VM can run the HTTPS reverse proxy, Uvicorn, and PostgreSQL as separate processes. PostgreSQL can listen on loopback so the API is the only service clients need to reach. This setup is small enough to operate while still providing practice with process management, database roles, connection pooling, and backups.
+- **Deployment boundary.** A single Linux VM can run the HTTPS reverse proxy, Uvicorn, PostgreSQL, and Redis as separate processes. PostgreSQL and Redis can listen on loopback so clients reach the API through HTTPS. This setup provides practice with process management, database roles, connection pooling, and backups.
 
 ## Run locally
 
 Create a PostgreSQL database and give the application role permission to create tables in its schema. Copy [`.env.example`](.env.example) to `.env` and set `DATABASE_URL` to a working connection string. `AUTH_SESSION_TTL_SECONDS` defaults to `28800`.
+
+Start Redis or Valkey for login. `REDIS_URL` defaults to `redis://127.0.0.1:6379/0`.
 
 ```bash
 python3.15 -m venv .venv
